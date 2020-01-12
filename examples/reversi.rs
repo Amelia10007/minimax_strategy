@@ -279,7 +279,7 @@ fn main() {
         match current_actor {
             Actor::Agent => {
                 println!("Searching actions..");
-                match agent_strategy.search_action(&board, consideration_depth) {
+                match agent_strategy.search_action(board.clone(), consideration_depth) {
                     Some(action) => board = reversi_rule.translate_state(&board, &action),
                     None => println!("There is no available action for the agent."),
                 }

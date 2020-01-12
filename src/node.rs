@@ -31,6 +31,10 @@ impl<T> TreeNode<T> {
         &mut self.item
     }
 
+    pub fn into_children(self) -> impl IntoIterator<Item = Self> {
+        self.children.into_iter()
+    }
+
     /// このノードの子を列挙する．
     pub fn children_mut(&mut self) -> impl Iterator<Item = &mut Self> {
         self.children.iter_mut()
