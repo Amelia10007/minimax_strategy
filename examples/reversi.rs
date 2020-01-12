@@ -290,7 +290,7 @@ fn main() {
                     reversi_rule.translate_state(&board, &input_user_action(&board, &reversi_rule))
             }
         }
-        current_actor = current_actor.the_other();
+        current_actor = current_actor.opponent();
     }
 
     println!("{}", board);

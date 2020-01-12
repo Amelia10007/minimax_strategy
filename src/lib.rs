@@ -31,7 +31,7 @@ pub trait Rule<S, A> {
     /// ある状態において実行可能な行動を列挙する際に使用する型．
     type ActionIterator: IntoIterator<Item = A>;
 
-    /// 指定された状態化で実行可能な行動を列挙する．
+    /// 指定された状態下で実行可能な行動を列挙する．
     fn iterate_available_actions(&self, state: &S, actor: Actor) -> Self::ActionIterator;
 
     /// 状態を遷移させる．
@@ -71,7 +71,7 @@ struct MinimaxNode<S, A, E> {
 }
 
 impl Actor {
-    pub fn the_other(&self) -> Self {
+    pub fn opponent(&self) -> Self {
         match self {
             Actor::Agent => Actor::Other,
             Actor::Other => Actor::Agent,
@@ -155,7 +155,7 @@ where
             return current_node.item().evaluation;
         }
         // who WILL act on the current state?
-        let next_actor = current_node.item().cause_action.actor().the_other();
+        let next_actor = current_node.item().cause_action.actor().opponent();
         // 次の実現しうる状態をすべて列挙し，それらを現在のノードの子に加える．
         for action in self
             .rule
