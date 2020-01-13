@@ -229,6 +229,7 @@ impl Evaluator<Board> for BoardEvaluator {
         match state.game_result() {
             Some(GameResult::Win(Actor::Agent)) => BoardEvaluation::Win,
             Some(GameResult::Win(Actor::Other)) => BoardEvaluation::Lose,
+            Some(GameResult::Draw) => BoardEvaluation::Equal,
             _ => match state.at(FIELD_SIZE / 2, FIELD_SIZE / 2) {
                 Some(Actor::Agent) => BoardEvaluation::OccupyCenterMass,
                 Some(Actor::Other) => BoardEvaluation::OccupiedCenterMass,
@@ -268,11 +269,11 @@ fn input_user_action(board: &Board, reversi_rule: &ReversiRule) -> Placement {
 }
 
 fn main() {
-    let consideration_depth = FIELD_SIZE * FIELD_SIZE;
+    let consideration_depth = 9;
     let reversi_rule = ReversiRule::new();
-    let agent_strategy = NegaAlphaStrategy::new(&reversi_rule, BoardEvaluator);
+    let agent_strategy = AlphaBetaStrategy::new(&reversi_rule, BoardEvaluator);
     let mut board = Board::new();
-    let mut current_actor = Actor::Other;
+    let mut current_actor = Actor::Agent;
 
     while !board.is_game_over() {
         println!("{}", board);
@@ -280,7 +281,7 @@ fn main() {
             Actor::Agent => {
                 println!("Searching actions..");
                 match agent_strategy.search_action(board.clone(), consideration_depth) {
-                    Some(action) => board = reversi_rule.translate_state(&board, &action),
+                    Some((.., next_state)) => board = next_state,
                     None => println!("There is no available action for the agent."),
                 }
                 println!("Find an action");

@@ -3,7 +3,6 @@ mod node;
 use node::TreeNode;
 use num::{Bounded, Integer};
 use std::marker::PhantomData;
-use std::ops::Neg;
 
 /// 2人ゲームにおける手番．
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -41,21 +40,21 @@ pub trait Rule<S, A> {
 /// ゲーム状態の評価関数．
 pub trait Evaluator<S> {
     /// 評価指標となる型．
-    type Evaluation: Copy + Ord + Bounded + Neg<Output = Self::Evaluation>;
+    type Evaluation;
 
     /// 指定された状態について，エージェントにとっての有利度合いを評価する．
     fn evaluate_for_agent(&self, state: &S) -> Self::Evaluation;
 }
 
-/// 2人完全情報ゲームの手をネガアルファ法で思考するエージェント．
-pub struct NegaAlphaStrategy<'r, S, A, R, E> {
+/// 2人零和ゲームにおける適切な行動をαβ法で思考するエージェント．
+pub struct AlphaBetaStrategy<'r, S, A, R, E> {
     /// ゲームルール．
     rule: &'r R,
     /// 評価関数．
     evaluator: E,
-    /// 👻👻👻
+    /// 👻
     _s: PhantomData<S>,
-    /// 👻👻👻
+    /// 👻
     _a: PhantomData<A>,
 }
 
@@ -67,10 +66,11 @@ struct MinimaxNode<S, A, E> {
     /// この状態に至る際に実行された行動．
     cause_action: Option<A>,
     /// エージェントにとっての現在状態の評価値．
-    evaluation: E,
+    evaluation: Option<E>,
 }
 
 impl Actor {
+    /// この手番に対する相手側の手番を返す．
     pub fn opponent(&self) -> Self {
         match self {
             Actor::Agent => Actor::Other,
@@ -79,12 +79,13 @@ impl Actor {
     }
 }
 
-impl<'r, S, A, R, E> NegaAlphaStrategy<'r, S, A, R, E>
+impl<'r, S, A, R, E> AlphaBetaStrategy<'r, S, A, R, E>
 where
     S: State,
     A: Action,
     R: Rule<S, A>,
     E: Evaluator<S>,
+    E::Evaluation: Copy + Ord + Bounded,
 {
     /// 指定したゲームルールおよび評価関数のもと思考するエージェントを生成する．
     pub fn new(rule: &'r R, evaluator: E) -> Self {
@@ -96,62 +97,36 @@ where
         }
     }
 
-    /// ネガアルファ法により，現在の状態に対するエージェントの望ましい行動を探索する．
+    /// αβ法により，現在の状態に対するこのエージェントの望ましい行動を探索する．
     /// # Params
     /// 1. state 現在の状態
     /// 1. search_depth 何手先まで読むか．例えば，次のエージェントの手までのみ読むなら，`search_depth`は1にすれば良い．
     ///
     /// # Returns
-    /// 1種類以上の行動が可能な場合，その中の最も望ましい行動`action`を`Some(action)`として返す．
+    /// 1種類以上の行動が可能な場合，その中の最も望ましい行動`a`とその行動後の状態`s`を`Some((a, s))`として返す．
     ///
     /// 可能な行動がない場合，`None`を返す．
-    ///
-    /// # Panics
-    /// 評価値`e`の正負反転`-e`がオーバーフローした場合．
-    pub fn search_action<N: Copy + Integer>(&self, state: S, search_depth: N) -> Option<A> {
-        let mut root = TreeNode::new(MinimaxNode::new(state, None, E::Evaluation::min_value()));
+    pub fn search_action<N: Copy + Integer>(&self, state: S, search_depth: N) -> Option<(A, S)> {
+        let mut root = TreeNode::new(MinimaxNode::new(state, None, None));
         self.alpha_beta(
             search_depth,
             &mut root,
             E::Evaluation::min_value(),
             E::Evaluation::max_value(),
         );
-        root.into_children()
-            .into_iter()
-            .max_by(|left, right| left.item().evaluation.cmp(&right.item().evaluation))
-            .and_then(|best_node| best_node.into_inner().cause_action)
-        /*self.rule
-        // 現在の状態に対して，このエージェントができる行動をまず列挙
-        .iterate_available_actions(state, Actor::Agent)
-        .into_iter()
-        // 試しに行動後のノードを作ってみる
-        .map(|agent_action| {
-            let next_state = self.rule.translate_state(state, &agent_action);
-            TreeNode::new(MinimaxNode::new(
-                next_state,
-                agent_action,
-                self.evaluator.evaluate_for_agent(state),
-            ))
+        root.into_child().and_then(|best_node| {
+            let inner = best_node.into_inner();
+            let next_state = inner.state;
+            inner.cause_action.map(|action| (action, next_state))
         })
-        // さらにその後の手をネガアルファ法により読む．
-        // 最終的に，その後の手のミニマックス評価値がこのノードの評価値となる．
-        .map(|mut root| {
-            let alpha = E::Evaluation::min_value();
-            let beta = E::Evaluation::max_value();
-            // ネガアルファ法では，手番が変わるたびに評価関数の符号を反転させることで，自他の手を統合して思考する．
-            let root_evaluation =
-                -self.alpha_beta(search_depth - N::one(), &mut root, -beta, -alpha);
-            (root, root_evaluation)
-        })
-        // もっとも評価値が良い行動を選択する．
-        .max_by(
-            |(_left_root, left_evaluation), (_right_root, right_evaluation)| {
-                left_evaluation.cmp(right_evaluation)
-            },
-        )
-        .map(|(root, _evaluation)| root.into_inner().cause_action)*/
     }
 
+    /// αβ法により，指定したノードの評価値を再帰的に計算する．
+    /// # Params
+    /// 1. remaining_depth 残りの探索深さ．
+    /// 1. current_node 注目ノード．
+    /// 1. alpha 評価値の関心範囲の下限．
+    /// 1. beta 評価値の関心範囲の上限．
     fn alpha_beta<N: Copy + Integer>(
         &self,
         remaining_depth: N,
@@ -159,56 +134,93 @@ where
         alpha: E::Evaluation,
         beta: E::Evaluation,
     ) -> E::Evaluation {
-        use std::cmp::max;
+        // デバッグ用アサーション (消しても問題ないけど，コード変更した際の挙動検証のために一応とっておく)
+        debug_assert!(alpha <= beta);
+        debug_assert!(current_node.evaluation.is_none());
 
-        // 注目ノードが末端ノードなら，注目ノードの状態に対する評価値を返す．
-        if remaining_depth.is_zero() || current_node.item().state.is_game_over() {
-            return current_node.item().evaluation;
+        // 注目ノードが末端ノードなら，現在の状態に対する静的評価値をそのまま適用する
+        if remaining_depth.is_zero() || current_node.state.is_game_over() {
+            let evaluation = self.evaluator.evaluate_for_agent(&current_node.state);
+            current_node.evaluation = Some(evaluation);
+            return evaluation;
         }
+
         // who WILL act on the current state?
-        let next_actor = match current_node.item().cause_action.as_ref() {
+        let next_actor = match current_node.cause_action.as_ref() {
             Some(action) => action.actor().opponent(),
             None => Actor::Agent,
         };
-        // 次の実現しうる状態をすべて列挙し，それらを現在のノードの子に加える．
-        for action in self
+        // 次の実現しうる状態をすべて列挙
+        let realizable_children = self
             .rule
-            .iterate_available_actions(&current_node.item().state, next_actor)
-        {
-            let minimax_node = {
-                let next_state = self
-                    .rule
-                    .translate_state(&current_node.item().state, &action);
-                // ネガアルファ法では，手番によって評価値の正負を反転させる必要がある．
-                let evaluation = match next_actor {
-                    Actor::Agent => -self.evaluator.evaluate_for_agent(&next_state),
-                    Actor::Other => self.evaluator.evaluate_for_agent(&next_state),
-                };
-                MinimaxNode::new(next_state, Some(action), E::Evaluation::min_value())
-            };
-            current_node.add_child(minimax_node);
+            .iterate_available_actions(&current_node.state, next_actor)
+            .into_iter()
+            .map(|action| {
+                let next_state = self.rule.translate_state(&current_node.state, &action);
+                MinimaxNode::new(next_state, Some(action), None)
+            })
+            .map(|minimax_node| TreeNode::new(minimax_node))
+            .collect::<Vec<_>>();
+
+        // 行動がない場合は，現在の状態に対する静的評価値をそのまま適用する
+        if realizable_children.is_empty() {
+            let evaluation = self.evaluator.evaluate_for_agent(&current_node.state);
+            current_node.evaluation = Some(evaluation);
+            return evaluation;
         }
 
-        // 子ノードの評価値を再帰的に求める．
-        let mut alpha = alpha;
-        for child in current_node.children_mut() {
-            let next_depth = remaining_depth - N::one();
-            // ネガアルファ法では，手番が変わるたびに評価関数の符号を反転させることで，自他の手を統合して思考する．
-            alpha = max(alpha, -self.alpha_beta(next_depth, child, -beta, -alpha));
-            // αカット
-            if alpha >= beta {
-                break;
+        // 注目ノードの評価値を，子ノードの評価値を用いて再帰的に求める．
+        let next_depth = remaining_depth - N::one();
+        match next_actor {
+            // 子ノードがエージェントの行動によって実現される場合
+            // エージェントは自分が有利になるよう意思決定するので，子ノードの中から評価値が最も高いものを選ぶ
+            Actor::Agent => {
+                let mut alpha = alpha;
+                for mut child in realizable_children.into_iter() {
+                    let child_evaluation = self.alpha_beta(next_depth, &mut child, alpha, beta);
+                    // より評価値が高い子が見つかれば，そのノードを注目ノードの子として登録する
+                    match current_node.evaluation {
+                        Some(e) if e >= child_evaluation => continue,
+                        _ => {}
+                    }
+                    current_node.evaluation = Some(child_evaluation);
+                    alpha = child_evaluation;
+                    current_node.replace_child(child);
+                    // βカット
+                    if alpha >= beta {
+                        break;
+                    }
+                }
+            }
+            // 子ノードが敵の行動によって実現される場合
+            // 敵はエージェントが不利になるよう意思決定するはずなので，子ノードの中から評価値が最も低いものを選ぶ
+            Actor::Other => {
+                let mut beta = beta;
+                for mut child in realizable_children.into_iter() {
+                    let child_evaluation = self.alpha_beta(next_depth, &mut child, alpha, beta);
+                    // より評価値が低い子が見つかれば，そのノードを注目ノードの子として登録する
+                    match current_node.evaluation {
+                        Some(e) if e <= child_evaluation => continue,
+                        _ => {}
+                    }
+                    current_node.evaluation = Some(child_evaluation);
+                    beta = child_evaluation;
+                    current_node.replace_child(child);
+                    // αカット
+                    if alpha >= beta {
+                        break;
+                    }
+                }
             }
         }
-        // 子ノードたちの最終的な評価値をこのノードに反映
-        current_node.item_mut().evaluation = alpha;
-        //
-        alpha
+        // ここに到達する時点で，注目ノードには1つ以上の子ノードが存在するので，その子ノードの評価値が注目ノードの評価値に反映されているはずである．
+        // つまり，注目ノードの評価値が確定しているので，このunwrap()は必ず成功する．
+        current_node.evaluation.unwrap()
     }
 }
 
 impl<S, A, E> MinimaxNode<S, A, E> {
-    fn new(state: S, cause_action: Option<A>, evaluation: E) -> Self {
+    fn new(state: S, cause_action: Option<A>, evaluation: Option<E>) -> Self {
         Self {
             state,
             cause_action,

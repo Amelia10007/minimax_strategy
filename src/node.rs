@@ -1,19 +1,18 @@
-/// 単方向の木構造におけるノードを表す．
+use std::ops::{Deref, DerefMut};
+
+/// 子をひとつ以下持つノードを表す．
 #[derive(Debug)]
 pub(crate) struct TreeNode<T> {
     /// このノードが保持する情報．
     item: T,
-    /// 任意の数の子ノード．
-    children: Vec<Self>,
+    /// 子ノード．
+    child: Option<Box<Self>>,
 }
 
 impl<T> TreeNode<T> {
     /// 子を持たないノードを作成する．
-    pub fn new(item: T) -> Self {
-        Self {
-            item,
-            children: vec![],
-        }
+    pub const fn new(item: T) -> Self {
+        Self { item, child: None }
     }
 
     /// このノードが保持する情報を返す．
@@ -21,29 +20,28 @@ impl<T> TreeNode<T> {
         self.item
     }
 
-    /// このノードが保持する情報を返す．
-    pub fn item(&self) -> &T {
+    /// このノードの子ノードが存在すれば，それを返す．
+    pub fn into_child(self) -> Option<Self> {
+        self.child.map(|c| *c)
+    }
+
+    /// このノードの子ノードを，指定したノードに置き換える．
+    /// この処理の前にすでに子ノードが存在していた場合，その子は破棄される．
+    pub fn replace_child(&mut self, new_child: Self) {
+        self.child = Some(Box::new(new_child));
+    }
+}
+
+impl<T> Deref for TreeNode<T> {
+    type Target = T;
+    fn deref(&self) -> &Self::Target {
         &self.item
     }
+}
 
-    /// このノードが保持する情報を返す．
-    pub fn item_mut(&mut self) -> &mut T {
+impl<T> DerefMut for TreeNode<T> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.item
-    }
-
-    pub fn into_children(self) -> impl IntoIterator<Item = Self> {
-        self.children.into_iter()
-    }
-
-    /// このノードの子を列挙する．
-    pub fn children_mut(&mut self) -> impl Iterator<Item = &mut Self> {
-        self.children.iter_mut()
-    }
-
-    /// このノードに指定したオブジェクトを保持する子ノードを追加する．
-    pub fn add_child(&mut self, child_item: T) {
-        let child = Self::new(child_item);
-        self.children.push(child);
     }
 }
 
@@ -60,21 +58,28 @@ mod tests {
     #[test]
     fn test_item() {
         let node = TreeNode::new(vec![0, 1, 2]);
-        assert_eq!(&vec![0, 1, 2], node.item());
+        assert_eq!(&vec![0, 1, 2], node.deref());
     }
 
     #[test]
     fn test_item_mut() {
         let mut node = TreeNode::new(vec![0, 1, 2]);
-        node.item_mut().push(3);
-        assert_eq!(&vec![0, 1, 2, 3], node.item());
+        node.push(3);
+        assert_eq!(&vec![0, 1, 2, 3], node.deref());
     }
 
     #[test]
-    fn test_add_child() {
+    fn test_replace_child() {
+        let node = TreeNode::new("root");
+        assert_eq!(None, node.into_child().map(|c| *c.deref()));
+
         let mut node = TreeNode::new("root");
-        node.add_child("child");
-        assert_eq!(1, node.children_mut().count());
-        assert_eq!(Some("child"), node.children_mut().nth(0).map(|c| *c.item()));
+        node.replace_child(TreeNode::new("child"));
+        assert_eq!(Some("child"), node.into_child().map(|c| *c.deref()));
+
+        let mut node = TreeNode::new("root");
+        node.replace_child(TreeNode::new("child1"));
+        node.replace_child(TreeNode::new("child2"));
+        assert_eq!(Some("child2"), node.into_child().map(|c| *c.deref()));
     }
 }
