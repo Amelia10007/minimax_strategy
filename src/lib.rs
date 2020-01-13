@@ -108,7 +108,7 @@ where
     /// 可能な行動がない場合，`None`を返す．
     pub fn search_action<N: Copy + Integer>(&self, state: S, search_depth: N) -> Option<(A, S)> {
         let mut root = TreeNode::new(MinimaxNode::new(state, None, None));
-        self.alpha_beta(
+        self.construct_best_game_tree_alpha_beta(
             search_depth,
             &mut root,
             E::Evaluation::min_value(),
@@ -127,7 +127,7 @@ where
     /// 1. current_node 注目ノード．
     /// 1. alpha 評価値の関心範囲の下限．
     /// 1. beta 評価値の関心範囲の上限．
-    fn alpha_beta<N: Copy + Integer>(
+    fn construct_best_game_tree_alpha_beta<N: Copy + Integer>(
         &self,
         remaining_depth: N,
         current_node: &mut TreeNode<MinimaxNode<S, A, E::Evaluation>>,
@@ -177,7 +177,8 @@ where
             Actor::Agent => {
                 let mut alpha = alpha;
                 for mut child in realizable_children.into_iter() {
-                    let child_evaluation = self.alpha_beta(next_depth, &mut child, alpha, beta);
+                    let child_evaluation = self
+                        .construct_best_game_tree_alpha_beta(next_depth, &mut child, alpha, beta);
                     // より評価値が高い子が見つかれば，そのノードを注目ノードの子として登録する
                     match current_node.evaluation {
                         Some(e) if e >= child_evaluation => continue,
@@ -197,7 +198,8 @@ where
             Actor::Other => {
                 let mut beta = beta;
                 for mut child in realizable_children.into_iter() {
-                    let child_evaluation = self.alpha_beta(next_depth, &mut child, alpha, beta);
+                    let child_evaluation = self
+                        .construct_best_game_tree_alpha_beta(next_depth, &mut child, alpha, beta);
                     // より評価値が低い子が見つかれば，そのノードを注目ノードの子として登録する
                     match current_node.evaluation {
                         Some(e) if e <= child_evaluation => continue,
