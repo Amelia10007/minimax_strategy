@@ -5,7 +5,7 @@ use num::{Bounded, Integer};
 use std::marker::PhantomData;
 
 /// 2人ゲームにおける手番．
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Actor {
     /// 思考エージェント．
     Agent,
