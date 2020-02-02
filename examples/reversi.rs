@@ -239,32 +239,23 @@ impl Evaluator<Board> for BoardEvaluator {
     }
 }
 
-fn input_index() -> usize {
-    loop {
-        let mut buffer = String::new();
-        std::io::stdin().read_line(&mut buffer).unwrap();
-        if let Ok(index) = buffer.trim().parse() {
-            return index;
-        }
-        println!("Invalid input");
-    }
+fn input_index() -> Option<usize> {
+    let mut buffer = String::new();
+    std::io::stdin().read_line(&mut buffer).unwrap();
+    buffer.trim().parse().ok()
 }
 
-fn input_user_action(board: &Board, reversi_rule: &ReversiRule) -> Placement {
-    debug_assert!(!board.is_game_over());
-    loop {
-        println!("Input placement x");
-        let x = input_index();
-        println!("Input placement y");
-        let y = input_index();
-        if let Some(placement) = reversi_rule
-            .iterate_available_actions(&board, Actor::Other)
-            .into_iter()
-            .find(|placement| placement.x == x && placement.y == y)
-        {
-            return placement;
-        }
-        println!("Invalid placement position");
+fn input_user_action(mut available_actions: impl Iterator<Item = Placement>) -> Option<Placement> {
+    println!("Input placement x");
+    let x = input_index()?;
+    println!("Input placement y");
+    let y = input_index()?;
+    if let Some(placement) =
+        available_actions.find(|placement| placement.x == x && placement.y == y)
+    {
+        Some(placement)
+    } else {
+        None
     }
 }
 
@@ -284,11 +275,19 @@ fn main() {
                     Some((.., next_state)) => board = next_state,
                     None => println!("There is no available action for the agent."),
                 }
-                println!("Find an action");
             }
             Actor::Other => {
-                board =
-                    reversi_rule.translate_state(&board, &input_user_action(&board, &reversi_rule))
+                let available_actions =
+                    reversi_rule.iterate_available_actions(&board, Actor::Other);
+                match input_user_action(available_actions) {
+                    Some(selected_action) => {
+                        board = reversi_rule.translate_state(&board, &selected_action)
+                    }
+                    None => {
+                        println!("Invalid input!");
+                        continue;
+                    }
+                }
             }
         }
         current_actor = current_actor.opponent();
