@@ -113,11 +113,13 @@ where
             search_depth,
             &mut root,
             Range::new(E::Evaluation::min_value(), E::Evaluation::max_value()),
-        );
-        root.into_child().and_then(|best_node| {
-            let inner = best_node.into_inner();
-            let next_state = inner.state;
-            inner.cause_action.map(|action| (action, next_state))
+        )
+        .and_then(|_| {
+            root.into_child().and_then(|best_node| {
+                let inner = best_node.into_inner();
+                let next_state = inner.state;
+                inner.cause_action.map(|action| (action, next_state))
+            })
         })
     }
 
@@ -127,12 +129,17 @@ where
     /// 1. current_node 注目ノード．
     /// 1. alpha 評価値の関心範囲の下限．
     /// 1. beta 評価値の関心範囲の上限．
+    ///
+    /// # Returns
+    /// `Some(e)`: このノードの評価値`e`
+    ///
+    /// `None`: このノードがゲーム終了ノードではなく，かつ取れる行動がない場合
     fn construct_best_game_tree_alpha_beta<N: Copy + Integer>(
         &self,
         remaining_depth: N,
         current_node: &mut TreeNode<MinimaxNode<S, A, E::Evaluation>>,
         evaluation_range: Range<E::Evaluation>,
-    ) -> E::Evaluation {
+    ) -> Option<E::Evaluation> {
         // デバッグ用アサーション (消しても問題ないけど，コード変更した際の挙動検証のために一応とっておく)
         debug_assert!(current_node.evaluation.is_none());
 
@@ -140,7 +147,7 @@ where
         if remaining_depth.is_zero() || current_node.state.is_game_over() {
             let evaluation = E::evaluate_for_agent(&current_node.state);
             current_node.evaluation = Some(evaluation);
-            return evaluation;
+            return Some(evaluation);
         }
 
         // who WILL act on the current state?
@@ -149,7 +156,9 @@ where
             None => Actor::Agent,
         };
 
-        // 注目ノードの評価値を，子ノードの評価値を用いて再帰的に求める．
+        // 状態遷移などに使用するので，注目ノードの状態をとっておく．
+        // ここでは構造体の，後の処理で変更されないメンバだけの参照を保持するだけなので，
+        // unsafeブロックの処理は安全である．
         let current_state = {
             let pointer: *const _ = &current_node.state;
             unsafe { pointer.as_ref().unwrap() }
@@ -165,11 +174,16 @@ where
             })
             .map(|minimax_node| TreeNode::new(minimax_node))
         {
-            let child_evaluation = self.construct_best_game_tree_alpha_beta(
+            // 子ノードの評価値を再帰的に求める．
+            // ここでNoneが帰ってきた場合，その子ノードはゲーム終了でもなく，かつ取れる行動がないパターンなので，探索対象としない．
+            let child_evaluation = match self.construct_best_game_tree_alpha_beta(
                 remaining_depth - N::one(),
                 &mut child,
                 current_evaluation_range,
-            );
+            ) {
+                Some(e) => e,
+                None => continue,
+            };
             // ミニマックス法により，探索する必要がある枝だけを選択する
             if let Some(e) = current_node.evaluation {
                 match next_actor {
@@ -189,9 +203,10 @@ where
                     }
                 }
             }
-            //
-            current_node.evaluation = Some(child_evaluation);
+            // ここに来たということは，より良い子ノードが見つかったということなので，子ノードの情報を入れ替える．
+            // また，注目ノードの評価値には，子ノードの値を反映させる．
             current_node.replace_child(child);
+            current_node.evaluation = Some(child_evaluation);
             // 評価値の注目範囲を更新する．
             // 可能なら，αβカットして探索量を減らす．
             let maybe_next_range = match next_actor {
@@ -204,16 +219,11 @@ where
             }
         }
 
-        // ここに到達する時点で，注目ノードには1つ以上の子ノードが存在するので，その子ノードの評価値が注目ノードの評価値に反映されているはずである．
-        // 行動がない場合は，現在の状態に対する静的評価値をそのまま適用する
-        match current_node.evaluation {
-            Some(e) => e,
-            None => {
-                let evaluation = E::evaluate_for_agent(&current_state);
-                current_node.evaluation = Some(evaluation);
-                evaluation
-            }
-        }
+        // 注目ノードの最終的な評価値を返す．
+        // ここに到達した時点で評価値が決定していないということは，
+        // 注目ノードの状態から取れる行動がないということなので，
+        // そのようなノードは探索の対象にしない．
+        current_node.evaluation
     }
 }
 
