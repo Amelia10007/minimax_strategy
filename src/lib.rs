@@ -49,13 +49,9 @@ pub trait Evaluator<S> {
 
 /// 2人零和ゲームにおける適切な行動をαβ法で思考するエージェント．
 pub struct AlphaBetaStrategy<S, A, R, E> {
-    /// 👻
     _s: PhantomData<S>,
-    /// 👻
     _a: PhantomData<A>,
-    /// 👻
     _r: PhantomData<R>,
-    /// 👻
     _e: PhantomData<E>,
 }
 
