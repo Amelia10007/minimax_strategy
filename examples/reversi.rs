@@ -158,16 +158,10 @@ impl Action for Placement {
 
 struct ReversiRule {}
 
-impl ReversiRule {
-    fn new() -> Self {
-        Self {}
-    }
-}
-
 impl Rule<Board, Placement> for ReversiRule {
     type ActionIterator = std::vec::IntoIter<Placement>;
 
-    fn iterate_available_actions(&self, state: &Board, actor: Actor) -> Self::ActionIterator {
+    fn iterate_available_actions(state: &Board, actor: Actor) -> Self::ActionIterator {
         let mut actions = vec![];
         for row in 0..FIELD_SIZE {
             for column in 0..FIELD_SIZE {
@@ -180,7 +174,7 @@ impl Rule<Board, Placement> for ReversiRule {
         actions.into_iter()
     }
 
-    fn translate_state(&self, state: &Board, action: &Placement) -> Board {
+    fn translate_state(state: &Board, action: &Placement) -> Board {
         debug_assert!(state.at(action.x, action.y).is_none());
         let mut next_state = state.clone();
         *next_state.at_mut(action.x, action.y) = Some(action.actor);
@@ -225,7 +219,7 @@ struct BoardEvaluator;
 
 impl Evaluator<Board> for BoardEvaluator {
     type Evaluation = BoardEvaluation;
-    fn evaluate_for_agent(&self, state: &Board) -> Self::Evaluation {
+    fn evaluate_for_agent(state: &Board) -> Self::Evaluation {
         match state.game_result() {
             Some(GameResult::Win(Actor::Agent)) => BoardEvaluation::Win,
             Some(GameResult::Win(Actor::Other)) => BoardEvaluation::Lose,
@@ -261,8 +255,7 @@ fn input_user_action(mut available_actions: impl Iterator<Item = Placement>) -> 
 
 fn main() {
     let consideration_depth = 9;
-    let reversi_rule = ReversiRule::new();
-    let agent_strategy = AlphaBetaStrategy::new(&reversi_rule, BoardEvaluator);
+    let agent_strategy = AlphaBetaStrategy::<_, _, ReversiRule, BoardEvaluator>::new();
     let mut board = Board::new();
     let mut current_actor = Actor::Agent;
 
@@ -278,10 +271,10 @@ fn main() {
             }
             Actor::Other => {
                 let available_actions =
-                    reversi_rule.iterate_available_actions(&board, Actor::Other);
+                    ReversiRule::iterate_available_actions(&board, Actor::Other);
                 match input_user_action(available_actions) {
                     Some(selected_action) => {
-                        board = reversi_rule.translate_state(&board, &selected_action)
+                        board = ReversiRule::translate_state(&board, &selected_action)
                     }
                     None => {
                         println!("Invalid input!");

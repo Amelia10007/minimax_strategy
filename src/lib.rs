@@ -32,10 +32,10 @@ pub trait Rule<S, A> {
     type ActionIterator: IntoIterator<Item = A>;
 
     /// 指定された状態下で実行可能な行動を列挙する．
-    fn iterate_available_actions(&self, state: &S, actor: Actor) -> Self::ActionIterator;
+    fn iterate_available_actions(state: &S, actor: Actor) -> Self::ActionIterator;
 
     /// 状態を遷移させる．
-    fn translate_state(&self, state: &S, action: &A) -> S;
+    fn translate_state(state: &S, action: &A) -> S;
 }
 
 /// ゲーム状態の評価関数．
@@ -44,19 +44,19 @@ pub trait Evaluator<S> {
     type Evaluation;
 
     /// 指定された状態について，エージェントにとっての有利度合いを評価する．
-    fn evaluate_for_agent(&self, state: &S) -> Self::Evaluation;
+    fn evaluate_for_agent(state: &S) -> Self::Evaluation;
 }
 
 /// 2人零和ゲームにおける適切な行動をαβ法で思考するエージェント．
-pub struct AlphaBetaStrategy<'r, S, A, R, E> {
-    /// ゲームルール．
-    rule: &'r R,
-    /// 評価関数．
-    evaluator: E,
+pub struct AlphaBetaStrategy<S, A, R, E> {
     /// 👻
     _s: PhantomData<S>,
     /// 👻
     _a: PhantomData<A>,
+    /// 👻
+    _r: PhantomData<R>,
+    /// 👻
+    _e: PhantomData<E>,
 }
 
 /// ミニマックス法で利用するゲーム木のノード．
@@ -80,21 +80,21 @@ impl Actor {
     }
 }
 
-impl<'r, S, A, R, E> AlphaBetaStrategy<'r, S, A, R, E>
+impl<S, A, R, E> AlphaBetaStrategy<S, A, R, E>
 where
-    S: State + Clone,
+    S: State,
     A: Action,
     R: Rule<S, A>,
     E: Evaluator<S>,
     E::Evaluation: Copy + Ord + Bounded,
 {
     /// 指定したゲームルールおよび評価関数のもと思考するエージェントを生成する．
-    pub fn new(rule: &'r R, evaluator: E) -> Self {
+    pub fn new() -> Self {
         Self {
-            rule,
-            evaluator,
             _s: PhantomData,
             _a: PhantomData,
+            _r: PhantomData,
+            _e: PhantomData,
         }
     }
 
@@ -138,7 +138,7 @@ where
 
         // 注目ノードが末端ノードなら，現在の状態に対する静的評価値をそのまま適用する
         if remaining_depth.is_zero() || current_node.state.is_game_over() {
-            let evaluation = self.evaluator.evaluate_for_agent(&current_node.state);
+            let evaluation = E::evaluate_for_agent(&current_node.state);
             current_node.evaluation = Some(evaluation);
             return evaluation;
         }
@@ -150,16 +150,17 @@ where
         };
 
         // 注目ノードの評価値を，子ノードの評価値を用いて再帰的に求める．
-        let current_state = current_node.state.clone();
+        let current_state = {
+            let pointer: *const _ = &current_node.state;
+            unsafe { pointer.as_ref().unwrap() }
+        };
         let mut current_evaluation_range = evaluation_range;
 
         // 次の実現しうる状態をすべて列挙し，ひとつひとつ調べる
-        for mut child in self
-            .rule
-            .iterate_available_actions(&current_state, next_actor)
+        for mut child in R::iterate_available_actions(&current_state, next_actor)
             .into_iter()
             .map(|action| {
-                let next_state = self.rule.translate_state(&current_state, &action);
+                let next_state = R::translate_state(&current_state, &action);
                 MinimaxNode::new(next_state, Some(action), None)
             })
             .map(|minimax_node| TreeNode::new(minimax_node))
@@ -208,7 +209,7 @@ where
         match current_node.evaluation {
             Some(e) => e,
             None => {
-                let evaluation = self.evaluator.evaluate_for_agent(&current_state);
+                let evaluation = E::evaluate_for_agent(&current_state);
                 current_node.evaluation = Some(evaluation);
                 evaluation
             }
