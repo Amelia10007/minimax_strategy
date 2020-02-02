@@ -1,5 +1,6 @@
 mod node;
 
+use data_structure::Range;
 use node::TreeNode;
 use num::{Bounded, Integer};
 use std::marker::PhantomData;
@@ -81,7 +82,7 @@ impl Actor {
 
 impl<'r, S, A, R, E> AlphaBetaStrategy<'r, S, A, R, E>
 where
-    S: State,
+    S: State + Clone,
     A: Action,
     R: Rule<S, A>,
     E: Evaluator<S>,
@@ -111,8 +112,7 @@ where
         self.construct_best_game_tree_alpha_beta(
             search_depth,
             &mut root,
-            E::Evaluation::min_value(),
-            E::Evaluation::max_value(),
+            Range::new(E::Evaluation::min_value(), E::Evaluation::max_value()),
         );
         root.into_child().and_then(|best_node| {
             let inner = best_node.into_inner();
@@ -131,11 +131,9 @@ where
         &self,
         remaining_depth: N,
         current_node: &mut TreeNode<MinimaxNode<S, A, E::Evaluation>>,
-        alpha: E::Evaluation,
-        beta: E::Evaluation,
+        evaluation_range: Range<E::Evaluation>,
     ) -> E::Evaluation {
         // デバッグ用アサーション (消しても問題ないけど，コード変更した際の挙動検証のために一応とっておく)
-        debug_assert!(alpha <= beta);
         debug_assert!(current_node.evaluation.is_none());
 
         // 注目ノードが末端ノードなら，現在の状態に対する静的評価値をそのまま適用する
@@ -150,74 +148,71 @@ where
             Some(action) => action.actor().opponent(),
             None => Actor::Agent,
         };
-        // 次の実現しうる状態をすべて列挙
-        let realizable_children = self
+
+        // 注目ノードの評価値を，子ノードの評価値を用いて再帰的に求める．
+        let current_state = current_node.state.clone();
+        let mut current_evaluation_range = evaluation_range;
+
+        // 次の実現しうる状態をすべて列挙し，ひとつひとつ調べる
+        for mut child in self
             .rule
-            .iterate_available_actions(&current_node.state, next_actor)
+            .iterate_available_actions(&current_state, next_actor)
             .into_iter()
             .map(|action| {
-                let next_state = self.rule.translate_state(&current_node.state, &action);
+                let next_state = self.rule.translate_state(&current_state, &action);
                 MinimaxNode::new(next_state, Some(action), None)
             })
             .map(|minimax_node| TreeNode::new(minimax_node))
-            .collect::<Vec<_>>();
-
-        // 行動がない場合は，現在の状態に対する静的評価値をそのまま適用する
-        if realizable_children.is_empty() {
-            let evaluation = self.evaluator.evaluate_for_agent(&current_node.state);
-            current_node.evaluation = Some(evaluation);
-            return evaluation;
-        }
-
-        // 注目ノードの評価値を，子ノードの評価値を用いて再帰的に求める．
-        let next_depth = remaining_depth - N::one();
-        match next_actor {
-            // 子ノードがエージェントの行動によって実現される場合
-            // エージェントは自分が有利になるよう意思決定するので，子ノードの中から評価値が最も高いものを選ぶ
-            Actor::Agent => {
-                let mut alpha = alpha;
-                for mut child in realizable_children.into_iter() {
-                    let child_evaluation = self
-                        .construct_best_game_tree_alpha_beta(next_depth, &mut child, alpha, beta);
-                    // より評価値が高い子が見つかれば，そのノードを注目ノードの子として登録する
-                    match current_node.evaluation {
-                        Some(e) if e >= child_evaluation => continue,
-                        _ => {}
+        {
+            let child_evaluation = self.construct_best_game_tree_alpha_beta(
+                remaining_depth - N::one(),
+                &mut child,
+                current_evaluation_range,
+            );
+            // ミニマックス法により，探索する必要がある枝だけを選択する
+            if let Some(e) = current_node.evaluation {
+                match next_actor {
+                    // エージェントは自分が有利になる行動を選択するので，
+                    // 自分が不利になる行動は候補から除外する
+                    Actor::Agent => {
+                        if e >= child_evaluation {
+                            continue;
+                        }
                     }
-                    current_node.evaluation = Some(child_evaluation);
-                    alpha = child_evaluation;
-                    current_node.replace_child(child);
-                    // βカット
-                    if alpha >= beta {
-                        break;
+                    // 相手はエージェントが不利になる行動を選択するので，
+                    // エージェントが有利になる行動は候補から除外する．
+                    Actor::Other => {
+                        if e <= child_evaluation {
+                            continue;
+                        }
                     }
                 }
             }
-            // 子ノードが敵の行動によって実現される場合
-            // 敵はエージェントが不利になるよう意思決定するはずなので，子ノードの中から評価値が最も低いものを選ぶ
-            Actor::Other => {
-                let mut beta = beta;
-                for mut child in realizable_children.into_iter() {
-                    let child_evaluation = self
-                        .construct_best_game_tree_alpha_beta(next_depth, &mut child, alpha, beta);
-                    // より評価値が低い子が見つかれば，そのノードを注目ノードの子として登録する
-                    match current_node.evaluation {
-                        Some(e) if e <= child_evaluation => continue,
-                        _ => {}
-                    }
-                    current_node.evaluation = Some(child_evaluation);
-                    beta = child_evaluation;
-                    current_node.replace_child(child);
-                    // αカット
-                    if alpha >= beta {
-                        break;
-                    }
-                }
+            //
+            current_node.evaluation = Some(child_evaluation);
+            current_node.replace_child(child);
+            // 評価値の注目範囲を更新する．
+            // 可能なら，αβカットして探索量を減らす．
+            let maybe_next_range = match next_actor {
+                Actor::Agent => Range::try_new(child_evaluation, current_evaluation_range.max),
+                Actor::Other => Range::try_new(current_evaluation_range.min, child_evaluation),
+            };
+            match maybe_next_range {
+                Some(range) => current_evaluation_range = range,
+                None => break,
             }
         }
+
         // ここに到達する時点で，注目ノードには1つ以上の子ノードが存在するので，その子ノードの評価値が注目ノードの評価値に反映されているはずである．
-        // つまり，注目ノードの評価値が確定しているので，このunwrap()は必ず成功する．
-        current_node.evaluation.unwrap()
+        // 行動がない場合は，現在の状態に対する静的評価値をそのまま適用する
+        match current_node.evaluation {
+            Some(e) => e,
+            None => {
+                let evaluation = self.evaluator.evaluate_for_agent(&current_state);
+                current_node.evaluation = Some(evaluation);
+                evaluation
+            }
+        }
     }
 }
 

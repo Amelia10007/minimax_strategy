@@ -8,6 +8,7 @@ edition = "2018"
 
 [dependencies]
 num = "0.2.1"
+data_structure = {git = "https://github.com/Amelia10007/data_structure.git"}
 
 [examples]
 reversi = {path = "examples/reversi.rs"}
