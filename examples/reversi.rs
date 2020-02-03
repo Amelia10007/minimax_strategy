@@ -100,18 +100,11 @@ impl Board {
 
 impl fmt::Display for Board {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        writeln!(f, "A: Agent reversi   O: Your reversi   -: Empty mass\n")?;
-        writeln!(f, "--------------------> x")?;
-        writeln!(f, "|")?;
-        writeln!(f, "|")?;
-        writeln!(f, "V y")?;
-        writeln!(f, "")?;
-
         for row in 0..FIELD_SIZE {
             for column in 0..FIELD_SIZE {
                 let displayed_item = match self.at(column, row) {
-                    Some(Actor::Agent) => "A",
-                    Some(Actor::Other) => "O",
+                    Some(Actor::First) => "F",
+                    Some(Actor::Second) => "S",
                     None => "-",
                 };
                 write!(f, "{} ", displayed_item)?;
@@ -122,11 +115,7 @@ impl fmt::Display for Board {
     }
 }
 
-impl State for Board {
-    fn is_game_over(&self) -> bool {
-        self.game_result().is_some()
-    }
-}
+impl State for Board {}
 
 struct Placement {
     x: usize,
@@ -158,8 +147,14 @@ impl Action for Placement {
 
 struct ReversiRule {}
 
-impl Rule<Board, Placement> for ReversiRule {
+impl Rule for ReversiRule {
+    type S = Board;
+    type A = Placement;
     type ActionIterator = std::vec::IntoIter<Placement>;
+
+    fn is_game_over(state: &Self::S) -> bool {
+        state.game_result().is_some()
+    }
 
     fn iterate_available_actions(state: &Board, actor: Actor) -> Self::ActionIterator {
         let mut actions = vec![];
@@ -218,70 +213,33 @@ impl Neg for BoardEvaluation {
 struct BoardEvaluator;
 
 impl Evaluator<Board> for BoardEvaluator {
-    type Evaluation = BoardEvaluation;
-    fn evaluate_for_agent(state: &Board) -> Self::Evaluation {
+    type Payoff = BoardEvaluation;
+    fn evaluate_payoff_for(actor: Actor, state: &Board) -> Self::Payoff {
         match state.game_result() {
-            Some(GameResult::Win(Actor::Agent)) => BoardEvaluation::Win,
-            Some(GameResult::Win(Actor::Other)) => BoardEvaluation::Lose,
+            Some(GameResult::Win(a)) if a == actor => BoardEvaluation::Win,
+            Some(GameResult::Win(_)) => BoardEvaluation::Lose,
             Some(GameResult::Draw) => BoardEvaluation::Equal,
             _ => match state.at(FIELD_SIZE / 2, FIELD_SIZE / 2) {
-                Some(Actor::Agent) => BoardEvaluation::OccupyCenterMass,
-                Some(Actor::Other) => BoardEvaluation::OccupiedCenterMass,
+                Some(a) if a == &actor => BoardEvaluation::OccupyCenterMass,
+                Some(_) => BoardEvaluation::OccupiedCenterMass,
                 None => BoardEvaluation::Equal,
             },
         }
     }
 }
 
-fn input_index() -> Option<usize> {
-    let mut buffer = String::new();
-    std::io::stdin().read_line(&mut buffer).unwrap();
-    buffer.trim().parse().ok()
-}
-
-fn input_user_action(mut available_actions: impl Iterator<Item = Placement>) -> Option<Placement> {
-    println!("Input placement x");
-    let x = input_index()?;
-    println!("Input placement y");
-    let y = input_index()?;
-    if let Some(placement) =
-        available_actions.find(|placement| placement.x == x && placement.y == y)
-    {
-        Some(placement)
-    } else {
-        None
-    }
-}
-
 fn main() {
-    let consideration_depth = 9;
-    let agent_strategy = AlphaBetaStrategy::<_, _, ReversiRule, BoardEvaluator>::new();
+    let consideration_depth = FIELD_SIZE * FIELD_SIZE;
+    let agent_strategy =
+        construct_alpha_beta_strategy::<ReversiRule, BoardEvaluator, _>(consideration_depth);
     let mut board = Board::new();
-    let mut current_actor = Actor::Agent;
+    let mut current_actor = Actor::First;
 
-    while !board.is_game_over() {
+    while !ReversiRule::is_game_over(&board) {
         println!("{}", board);
-        match current_actor {
-            Actor::Agent => {
-                println!("Searching actions..");
-                match agent_strategy.search_action(board.clone(), consideration_depth) {
-                    Some((.., next_state)) => board = next_state,
-                    None => println!("There is no available action for the agent."),
-                }
-            }
-            Actor::Other => {
-                let available_actions =
-                    ReversiRule::iterate_available_actions(&board, Actor::Other);
-                match input_user_action(available_actions) {
-                    Some(selected_action) => {
-                        board = ReversiRule::translate_state(&board, &selected_action)
-                    }
-                    None => {
-                        println!("Invalid input!");
-                        continue;
-                    }
-                }
-            }
+        println!("{:?}'s action", current_actor);
+        if let Some(action) = agent_strategy.select_action(&board, current_actor) {
+            board = ReversiRule::translate_state(&board, &action);
         }
         current_actor = current_actor.opponent();
     }
