@@ -212,10 +212,8 @@ where
             &mut root,
             Range::new(E::Payoff::min_value(), E::Payoff::max_value()),
         )
-        .and_then(|_| {
-            root.into_child()
-                .and_then(|best_node| best_node.into_inner().cause_action)
-        })
+        .and_then(|_| root.into_child())
+        .and_then(|best_node| best_node.into_inner().cause_action)
     }
 }
 
