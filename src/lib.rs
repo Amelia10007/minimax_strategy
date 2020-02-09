@@ -7,7 +7,7 @@ use node::TreeNode;
 use num::{Bounded, Integer};
 use std::marker::PhantomData;
 
-/// 2人ゲームにおける手番．
+/// 2人ゲームにおけるプレイヤー．
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Actor {
     /// 先手
@@ -131,10 +131,9 @@ where
         let mut current_payoff_range = payoff_range;
 
         // 次の実現しうる状態をすべて列挙し，ひとつひとつ調べる
-        for mut child in R::iterate_available_actions(&current_state, next_actor)
-            .into_iter()
+        for mut child in R::iterate_available_actions(current_state, next_actor)
             .map(|action| {
-                let next_state = R::translate_state(&current_state, &action);
+                let next_state = R::translate_state(current_state, &action);
                 MinimaxNode::new(next_state.into(), Some(action), None)
             })
             .map(|minimax_node| TreeNode::new(minimax_node))
@@ -215,6 +214,11 @@ where
         .and_then(|_| root.into_child())
         .and_then(|best_node| best_node.into_inner().cause_action)
     }
+}
+
+/// 2人ゲームにおける各プレイヤーを返す．
+pub fn actors() -> [Actor; 2] {
+    [Actor::First, Actor::Second]
 }
 
 pub fn construct_alpha_beta_strategy<R, E, N>(search_depth: N) -> AlphaBetaStrategy<R, E, N> {
