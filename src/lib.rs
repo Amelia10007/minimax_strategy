@@ -42,7 +42,7 @@ pub trait Rule {
     /// このゲームルールにおけるプレイヤーの行動．
     type A;
     /// ある状態において実行可能な行動を列挙する際に使用する型．
-    type ActionIterator: Iterator<Item = Self::A>;
+    type ActionIterator: IntoIterator<Item = Self::A>;
 
     /// 指定した状態がすでにゲーム終了条件を満たしているか．
     fn is_game_over(state: &Self::S) -> bool;
@@ -132,6 +132,7 @@ where
 
         // 次の実現しうる状態をすべて列挙し，ひとつひとつ調べる
         for mut child in R::iterate_available_actions(current_state, next_actor)
+            .into_iter()
             .map(|action| {
                 let next_state = R::translate_state(current_state, &action);
                 MinimaxNode::new(next_state.into(), Some(action), None)

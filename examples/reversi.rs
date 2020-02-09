@@ -150,7 +150,7 @@ struct ReversiRule {}
 impl Rule for ReversiRule {
     type S = Board;
     type A = Placement;
-    type ActionIterator = std::vec::IntoIter<Placement>;
+    type ActionIterator = Vec<Placement>;
 
     fn is_game_over(state: &Self::S) -> bool {
         state.game_result().is_some()
@@ -166,7 +166,7 @@ impl Rule for ReversiRule {
                 }
             }
         }
-        actions.into_iter()
+        actions
     }
 
     fn translate_state(state: &Board, action: &Placement) -> Board {
